@@ -1,0 +1,206 @@
+场景一: 有一个大数据集合，每条样本的开头有一个桶编号(1-5), 比如数据
+3,0,14102110,2,1,1850,3536,7,3491,176,1,717418,939845,1459,1,1,646,5,7,2485,4,9,100000,40
+在这条数据中，3是对应的桶编号, 0是标签,后面是数据
+
+算法对这个数据集合进行交叉验证，运行五次，每次选取一个桶编号的数据作为验证集合，其他的作为训练集合
+原来运行时间是11.8秒，我上周想办法优化至5.99秒，想请教一下能否进一步优化：
+代码如下：
+代码一:
+//得到每次迭代时训练集合和验证集合数据对应的桶编号
+参数说明：  
+  int bucket_count 桶编号数量（这个数字不大）  
+  int cross_valid_count 交叉验证次数(这个数字不大) 
+  std::vector<std::set<std::string>>& train_valid_data 存放每次交叉验证时，作为验证数据集合的编号，如果某条数据的编号不在这个集合中则加入训练集合
+  切分原则是使得每段的数据集合的桶编号尽可能均匀
+  
+void Application::Get_Train_Valid_BucketIndex(int bucket_count, int cross_valid_count, std::vector<std::set<std::string>>& train_valid_data)
+{
+    train_valid_data.clear();
+    //构建每次训练测试集合的桶编号集合
+		int mean_count = round((bucket_count + 0.0) / cross_valid_count);
+		std::cout << "bucket_count: " << bucket_count << std::endl;
+		std::cout << "train_valid_cross: " << cross_valid_count << std::endl;
+		std::cout << "mean_count: " << mean_count << std::endl;
+
+		std::set<std::string> tmp_set;
+		for (int i = 1; i <= bucket_count; i++) {
+			if (i % mean_count == 0) {
+				tmp_set.insert(std::to_string(i));
+				if ((bucket_count - i) < (mean_count / 2)) {
+					i++;
+					for (int j = i; j <= bucket_count; j++) {
+						tmp_set.insert(std::to_string(j));
+					}
+					train_valid_data.emplace_back(tmp_set);
+					tmp_set.clear();
+					break;
+				}
+				else if ((bucket_count - i) < mean_count) {
+					train_valid_data.push_back(tmp_set);
+					tmp_set.clear();
+					i++;
+					for (int j = i; j <= bucket_count; j++) {
+						tmp_set.insert(std::to_string(j));
+					}
+					train_valid_data.push_back(tmp_set);
+					break;
+				}
+				else {
+					train_valid_data.push_back(tmp_set);
+					tmp_set.clear();
+				}
+			}
+			else {
+				tmp_set.insert(std::to_string(i));
+			}
+		}
+		return;
+	}
+
+代码二(不相关的代码已经去除)：:
+    std::vector<std::string> total_data, //所有的数据
+    std::vector<std::string> train_data, //本次交叉验证所使用的训练数据 
+    std::vector<std::string> valid_data, //本次交叉验证所使用的验证数据
+    size_t train_data_count = 0;  //记录训练集合的数量 
+    size_t valid_data_count = 0;  //记录验证集合的数量 
+    std::unordered_map<size_t, int> index_2_bucket_map; //记录每一条样本  
+
+    //本循环用于得到每一条样本的桶编号(存放在bucket_no)，并且使用index_2_bucket_map记录每天记录对应的桶编号，即数据第一个逗号之前的数据
+    //并且得到本次训练的训练数据集合的数量train_data_count和评估集合数量valid_data_count
+    for (size_t i = 0; i < size; i++) {
+	char *strScr = (char *)total_data[i].c_str();
+	std::string s_tmp = "";
+	std::string bucket_no = "";
+	for (; strScr != NULL; strScr++) {
+	   if (*strScr != ',') {
+	      bucket_no += *strScr;	      
+	   }
+	   else {
+	      break;
+	   }
+	}
+
+	if (valid_set.find(bucket_no) == valid_set.end()) { //训练集合
+	   index_2_bucket_map[i] = 1;   
+           train_data_count += 1;
+	}
+	else { //验证集合
+	   index_2_bucket_map[i] = 0; 
+           valid_data_count += 1;
+	}		
+    }
+
+    //为train_data一次性分配内存，因为感觉使用push_back效率较低 
+    train_data = std::vector<std::string>(train_data_count);
+    valid_data.clear();
+    valid_data.shrink_to_fit();
+     
+    valid_data = std::vector<std::string>(valid_data_count); 
+    size_t train_data_index = 0; //记录训练集合当前索引 
+    size_t valid_data_index = 0; //记录验证集合当前索引
+
+    //将总体数据集合，分别加入至训练集合和验证集合中，并且去除数据首部的桶编号
+    for (size_t i = 0; i < size; i++) {
+        std::string::const_iterator iter_start = total_data[i].begin();
+        std::string::const_iterator iter_end = total_data[i].end();
+        for (; iter_start != iter_end; iter_start++) {
+           if (*iter_start == ',') {
+              if (index_2_bucket_map[i] == 1) //加入训练集合
+              {
+                 iter_start += 1;
+                 train_data[train_data_index].assign(iter_start, iter_end);
+                 train_data_index++;
+                 break; 
+              }
+              else //加入测试集合
+              {
+                 iter_start += 1;
+                 valid_data[valid_data_index].assign(iter_start, iter_end);
+                 valid_data_index++;
+                 break;	                         
+              }              
+           }           
+        }                  
+    }
+    //释放map内存
+    index_2_bucket_map.clear();
+    std::unordered_map<size_t, int>().swap(index_2_bucket_map);
+    auto end_time = std::chrono::high_resolution_clock::now();
+
+
+场景二: 这个场景与场景一差不多，在这个数据集合中，有两个桶编号1和2, 编号2的数据是训练集合，编号1的数据是测试数据,
+本场景只需优化一次.
+原来运行时间是10.8秒，我上周想办法优化至3.23秒，想请教一下能否进一步优化
+代码如下(不相关的代码已经去除)：
+    size_t size = total_data.size();  //得到总体数据
+    std::unordered_map<size_t, int> index_2_bucket_map; //index对应的bucket编号
+    size_t train_data_count = 0;  //训练数据集合的数量
+    size_t valid_data_count = 0;  //测试数据集合的数量
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    for (size_t i = 0; i < size; i++) {
+       char *strScr = (char *)total_data[i].c_str();
+       std::string bucket_no = "";
+       for (; strScr != NULL; strScr++) {
+          if (*strScr != ',') {
+             bucket_no += *strScr;
+          }
+          else {
+             break;
+          }
+       }
+
+       if (bucket_no == "2") { //桶编号为2是训练数据
+          index_2_bucket_map[i] = 2;
+          train_data_count += 1;  //记录训练集合的数量      
+       }
+       else if ((bucket_no == "1")) { //桶编号为1是验证数据
+          index_2_bucket_map[i] = 1;   
+          valid_data_count += 1;  //记录验证集合的数量
+       }
+    }
+
+    //一次性分配内存，避免后续push_back操作造成性能低下
+    auto train_data_vec = std::vector<std::string>(train_data_count);
+    valid_data = std::vector<std::string>(valid_data_count);
+    
+    size_t train_data_index = 0; //记录当前训练集合处理的索引
+    size_t valid_data_index = 0; //记录当前验证集合处理的索引
+    //一次性分配内存，避免后续push_back操作造成性能低下
+    auto train_data_vec = std::vector<std::string>(train_data_count);
+    valid_data = std::vector<std::string>(valid_data_count);
+
+    //根据前面map记录的数据将总体数据分成训练集合和验证集合
+    for (size_t i = 0; i < size; i++) {
+        if (index_2_bucket_map.count(i))
+        {
+           std::string::const_iterator iter_start = total_data[i].begin();
+           std::string::const_iterator iter_end = total_data[i].end();
+           for (; iter_start != iter_end; iter_start++) {
+              if (*iter_start == ',') {
+                 if (index_2_bucket_map[i] == 2) //加入训练集合
+                 {
+                    iter_start += 1;
+                    train_data_vec[train_data_index].assign(iter_start, iter_end);
+                    train_data_index++;
+                    break;
+                 }
+                 else //加入测试集合
+                 {
+                    iter_start += 1;
+                    valid_data[valid_data_index].assign(iter_start, iter_end);
+                    valid_data_index++;
+                    break;
+                 }
+              }
+           }
+        }
+    }
+
+    //释放map内存
+    index_2_bucket_map.clear();
+    std::unordered_map<size_t, int>().swap(index_2_bucket_map);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    //计算程序消耗时间
+    Log::Info("Finished split time cross_valid data in %f seconds",
+      std::chrono::duration<double, std::milli>(end_time - start_time) * 1e-3);
